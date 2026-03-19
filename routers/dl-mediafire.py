@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 import httpx
 from bs4 import BeautifulSoup
+import re
 
 router = APIRouter(tags=["downloader"])
 
@@ -12,7 +12,7 @@ headers = {
 def normalize(url: str):
     return url.replace("/view/", "/file/")
 
-async def get_direct_link(url: str):
+async def scrape_mediafire(url: str):
     url = normalize(url)
 
     async with httpx.AsyncClient(timeout=40, follow_redirects=True) as client:
@@ -20,6 +20,7 @@ async def get_direct_link(url: str):
 
     soup = BeautifulSoup(res.text, "html.parser")
 
+    # ambil direct link (WAJIB valid)
     download = None
 
     btn = soup.find("a", {"id": "downloadButton"})
@@ -37,32 +38,41 @@ async def get_direct_link(url: str):
             download = alt2.get("href")
 
     if not download:
-        raise HTTPException(status_code=404, detail="Download link not found")
+        raise HTTPException(status_code=404, detail="Direct link tidak ditemukan")
 
-    return download
+    # file name
+    file_name = None
+    name_tag = soup.find("div", {"class": "dl-btn-label"})
+    if name_tag:
+        file_name = name_tag.get("title") or name_tag.text.strip()
+
+    # file size
+    file_size = None
+    text_all = soup.get_text()
+    match = re.search(r"(\\d+(\\.\\d+)?\\s?(KB|MB|GB))", text_all)
+    if match:
+        file_size = match.group(1)
+
+    return {
+        "fileName": file_name or "Unknown File",
+        "fileSize": file_size or "Unknown Size",
+        "download": download,  # Direct Link
+        "source": url
+    }
 
 
-@router.get("/mediafire", summary="Direct Download MediaFire")
+@router.get("/mediafire", summary="MediaFire Direct Link")
 async def mediafire_dl(url: str):
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
     try:
-        direct_url = await get_direct_link(url)
+        data = await scrape_mediafire(url)
 
-        async def stream():
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("GET", direct_url, headers=headers) as r:
-                    async for chunk in r.aiter_bytes():
-                        yield chunk
-
-        return StreamingResponse(
-            stream(),
-            media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": "attachment"
-            }
-        )
+        return {
+            "success": True,
+            "result": data
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
