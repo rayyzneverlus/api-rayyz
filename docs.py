@@ -5,7 +5,7 @@ def setup_docs(app):
         if app.openapi_schema:
             return app.openapi_schema
         openapi_schema = get_openapi(
-            title="Taka Api's",
+            title="Farel Api's",
             version="1.5.2",
             description="Easy To Use",
             routes=app.routes,
