@@ -1,38 +1,46 @@
 from fastapi import APIRouter, HTTPException
 import httpx
 import uuid
+import random
 
 router = APIRouter(tags=["maker"])
 
 IQC_API = "https://fareldeveloper-iqc.hf.space/api"
-ZLR_UPLOAD = "https://zlr.my.id/upload"  # sesuaikan endpoint lu
+ZLR_UPLOAD = "https://zlr.my.id/upload"  # sesuaikan API lu
 
-# ===== UPLOAD KE ZLR =====
-async def upload_zlr(buffer: bytes, filename: str):
+# generate nama random tapi readable
+def generate_filename(prefix: str, ext: str = "png"):
+    rand = random.randint(100000, 999999)
+    return f"{prefix}-{rand}.{ext}"
+
+# upload ke zlr dengan folder
+async def upload_zlr(buffer: bytes, filename: str, folder: str):
     try:
         files = {
             "file": (filename, buffer, "image/png")
         }
 
+        data = {
+            "path": f"/maker/{folder}"  # 🔥 folder custom
+        }
+
         async with httpx.AsyncClient(timeout=60) as client:
-            res = await client.post(ZLR_UPLOAD, files=files)
+            res = await client.post(ZLR_UPLOAD, files=files, data=data)
 
-        data = res.json()
+        result = res.json()
 
-        # fleksibel (biar ga error beda format)
-        return data.get("url") or data.get("result") or data
+        return result.get("url") or result.get("result") or result
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload ZLR gagal: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload gagal: {e}")
 
-# ===== ENDPOINT IQC =====
-@router.get("/iqc", summary="Generate IQC Image + Upload CDN")
+# endpoint iqc
+@router.get("/iqc", summary="IQC Maker + Folder CDN")
 async def iqc_maker(text: str, time: str = "12.00", battery: str = "100"):
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
 
     try:
-        # build URL
         api_url = f"{IQC_API}?text={text}&time={time}&battery={battery}"
 
         async with httpx.AsyncClient(timeout=60) as client:
@@ -43,22 +51,15 @@ async def iqc_maker(text: str, time: str = "12.00", battery: str = "100"):
 
         image_bytes = res.content
 
-        # generate nama file random
-        filename = f"iqc_{uuid.uuid4().hex}.png"
+        filename = generate_filename("iqc")
 
-        # upload ke CDN lu
-        uploaded_url = await upload_zlr(image_bytes, filename)
+        uploaded = await upload_zlr(image_bytes, filename, "iqc")
 
         return {
             "success": True,
-            "creator": "Muhammad Farel",
             "result": {
-                "url": uploaded_url,
-                "metadata": {
-                    "text": text,
-                    "time": time,
-                    "battery": battery
-                }
+                "url": uploaded,
+                "path": f"/maker/iqc/{filename}"
             }
         }
 
