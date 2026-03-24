@@ -3,18 +3,23 @@ import httpx
 
 router = APIRouter(tags=["tools"])
 
-BASE_URL = "https://farel.rf.gd/api"
+BASE = "https://farel.rf.gd"
 
-# HEADER BIAR MIRIP BROWSER
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
     "Accept": "*/*",
-    "Origin": "https://farel.rf.gd",
-    "Referer": "https://farel.rf.gd/",
+    "Origin": BASE,
+    "Referer": BASE + "/"
 }
 
-def is_html(res):
-    return "text/html" in res.headers.get("content-type", "")
+# ===== BUAT SESSION DULU =====
+async def create_client():
+    client = httpx.AsyncClient(headers=HEADERS, follow_redirects=True)
+
+    # 🔥 hit homepage biar dapet cookie
+    await client.get(BASE)
+
+    return client
 
 # ===== UPLOAD =====
 @router.post("/cdn/upload")
@@ -36,14 +41,21 @@ async def upload_file(
         if password:
             data["password"] = password
 
-        async with httpx.AsyncClient(timeout=60, headers=HEADERS) as client:
-            res = await client.post(f"{BASE_URL}/upload.php", files=files, data=data)
+        client = await create_client()
 
-        # 🔥 DETEKSI PROTEKSI
-        if is_html(res):
+        res = await client.post(
+            f"{BASE}/api/upload.php",
+            files=files,
+            data=data
+        )
+
+        text = res.text
+
+        # 🔥 DETEKSI HTML PROTEKSI
+        if "<html" in text.lower():
             raise HTTPException(
                 status_code=403,
-                detail="Terblokir oleh proteksi server (anti-bot / JS challenge)"
+                detail="Masih kena proteksi (butuh JS execution)"
             )
 
         return res.json()
@@ -60,43 +72,22 @@ async def shorten_url(url: str, alias: str = None):
         if alias:
             payload["alias"] = alias
 
-        async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
-            res = await client.post(
-                f"{BASE_URL}/shorten.php",
-                json=payload
-            )
+        client = await create_client()
 
-        if is_html(res):
+        res = await client.post(
+            f"{BASE}/api/shorten.php",
+            json=payload
+        )
+
+        text = res.text
+
+        if "<html" in text.lower():
             raise HTTPException(
                 status_code=403,
-                detail="Terblokir oleh proteksi server (anti-bot)"
+                detail="Terblokir proteksi JS"
             )
 
         return res.json()
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ===== LIST FILE =====
-@router.get("/cdn/files")
-async def list_files():
-    async with httpx.AsyncClient(headers=HEADERS) as client:
-        res = await client.get(f"{BASE_URL}/files.php")
-
-    if is_html(res):
-        raise HTTPException(status_code=403, detail="Blocked by server")
-
-    return res.json()
-
-
-# ===== LIST URL =====
-@router.get("/cdn/urls")
-async def list_urls():
-    async with httpx.AsyncClient(headers=HEADERS) as client:
-        res = await client.get(f"{BASE_URL}/urls.php")
-
-    if is_html(res):
-        raise HTTPException(status_code=403, detail="Blocked by server")
-
-    return res.json()
