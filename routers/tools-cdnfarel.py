@@ -5,8 +5,18 @@ router = APIRouter(tags=["tools"])
 
 BASE_URL = "https://farel.rf.gd/api"
 
+# ===== SAFE JSON PARSER =====
+def safe_json(res):
+    try:
+        return res.json()
+    except:
+        return {
+            "success": False,
+            "raw": res.text[:300]  # ambil sebagian biar ga kepanjangan
+        }
+
 # ===== UPLOAD FILE =====
-@router.post("/cdn/upload", summary="Upload File ke Farel CDN")
+@router.post("/cdn/upload")
 async def upload_file(
     file: UploadFile = File(...),
     custom_name: str = Form(None),
@@ -28,33 +38,25 @@ async def upload_file(
         async with httpx.AsyncClient(timeout=60) as client:
             res = await client.post(f"{BASE_URL}/upload.php", files=files, data=data)
 
-        result = res.json()
+        result = safe_json(res)
 
         if not result.get("success"):
-            raise HTTPException(status_code=500, detail="Upload gagal")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Upload gagal | Status: {res.status_code} | Response: {result}"
+            )
 
-        return {
-            "success": True,
-            "result": {
-                "url": result.get("url"),
-                "short_url": result.get("short_url"),
-                "size": result.get("size"),
-                "type": result.get("mime_type")
-            }
-        }
+        return result
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ===== SHORT URL =====
-@router.post("/cdn/short", summary="Short URL Farel CDN")
+@router.post("/cdn/short")
 async def shorten_url(url: str, alias: str = None):
     try:
-        payload = {
-            "url": url
-        }
-
+        payload = {"url": url}
         if alias:
             payload["alias"] = alias
 
@@ -65,44 +67,41 @@ async def shorten_url(url: str, alias: str = None):
                 headers={"Content-Type": "application/json"}
             )
 
-        result = res.json()
+        result = safe_json(res)
 
         if not result.get("success"):
-            raise HTTPException(status_code=500, detail="Short URL gagal")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Short URL gagal | Status: {res.status_code} | Response: {result}"
+            )
 
-        return {
-            "success": True,
-            "result": {
-                "short_url": result.get("short_url"),
-                "original_url": result.get("original_url")
-            }
-        }
+        return result
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ===== LIST FILE =====
-@router.get("/cdn/files", summary="List File CDN")
+@router.get("/cdn/files")
 async def list_files():
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             res = await client.get(f"{BASE_URL}/files.php")
 
-        return res.json()
+        return safe_json(res)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ===== LIST SHORT URL =====
-@router.get("/cdn/urls", summary="List Short URL")
+# ===== LIST URL =====
+@router.get("/cdn/urls")
 async def list_urls():
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             res = await client.get(f"{BASE_URL}/urls.php")
 
-        return res.json()
+        return safe_json(res)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
