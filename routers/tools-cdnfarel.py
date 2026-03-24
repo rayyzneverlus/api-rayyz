@@ -1,28 +1,25 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-import httpx
+import cloudscraper
+import json
 
 router = APIRouter(tags=["tools"])
 
-BASE = "https://farel.rf.gd"
+BASE = "https://farel.rf.gd/api"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-    "Accept": "*/*",
-    "Origin": BASE,
-    "Referer": BASE + "/"
-}
+# ===== BUAT SCRAPER =====
+def create_scraper():
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'mobile': False
+        }
+    )
+    return scraper
 
-# ===== BUAT SESSION DULU =====
-async def create_client():
-    client = httpx.AsyncClient(headers=HEADERS, follow_redirects=True)
 
-    # 🔥 hit homepage biar dapet cookie
-    await client.get(BASE)
-
-    return client
-
-# ===== UPLOAD =====
-@router.post("/cdn/upload")
+# ===== UPLOAD FILE =====
+@router.post("/cdn/upload", summary="Upload File (Bypass Proteksi)")
 async def upload_file(
     file: UploadFile = File(...),
     custom_name: str = Form(None),
@@ -41,41 +38,46 @@ async def upload_file(
         if password:
             data["password"] = password
 
-        client = await create_client()
+        scraper = create_scraper()
 
-        res = await client.post(
-            f"{BASE}/api/upload.php",
+        res = scraper.post(
+            f"{BASE}/upload.php",
             files=files,
             data=data
         )
 
         text = res.text
 
-        # 🔥 DETEKSI HTML PROTEKSI
+        # 🔥 DETEKSI ERROR HTML
         if "<html" in text.lower():
             raise HTTPException(
                 status_code=403,
-                detail="Masih kena proteksi (butuh JS execution)"
+                detail="Masih kena proteksi / challenge gagal"
             )
 
-        return res.json()
+        result = res.json()
+
+        return {
+            "success": True,
+            "result": result
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ===== SHORT URL =====
-@router.post("/cdn/short")
+@router.post("/cdn/short", summary="Short URL (Bypass)")
 async def shorten_url(url: str, alias: str = None):
     try:
         payload = {"url": url}
         if alias:
             payload["alias"] = alias
 
-        client = await create_client()
+        scraper = create_scraper()
 
-        res = await client.post(
-            f"{BASE}/api/shorten.php",
+        res = scraper.post(
+            f"{BASE}/shorten.php",
             json=payload
         )
 
@@ -84,8 +86,47 @@ async def shorten_url(url: str, alias: str = None):
         if "<html" in text.lower():
             raise HTTPException(
                 status_code=403,
-                detail="Terblokir proteksi JS"
+                detail="Proteksi masih aktif"
             )
+
+        result = res.json()
+
+        return {
+            "success": True,
+            "result": result
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== LIST FILE =====
+@router.get("/cdn/files", summary="List Files")
+async def list_files():
+    try:
+        scraper = create_scraper()
+
+        res = scraper.get(f"{BASE}/files.php")
+
+        if "<html" in res.text.lower():
+            raise HTTPException(status_code=403, detail="Blocked")
+
+        return res.json()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== LIST URL =====
+@router.get("/cdn/urls", summary="List URLs")
+async def list_urls():
+    try:
+        scraper = create_scraper()
+
+        res = scraper.get(f"{BASE}/urls.php")
+
+        if "<html" in res.text.lower():
+            raise HTTPException(status_code=403, detail="Blocked")
 
         return res.json()
 
