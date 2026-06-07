@@ -9,7 +9,7 @@ import httpx
 from Crypto.Cipher import PKCS1_v1.5
 from Crypto.PublicKey import RSA
 
-router = APIRouter(tags=["AI"])
+router = APIRouter(tags=["ai"])
 
 API = "https://aga-api.aichatting.net/aigc/chat/v2/professional/stream"
 SESSION_FILE = "./aichatting-session.json"
